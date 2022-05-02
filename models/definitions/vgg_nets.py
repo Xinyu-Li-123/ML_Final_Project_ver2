@@ -1,6 +1,8 @@
 from collections import namedtuple
 import torch
 from torchvision import models
+import matplotlib.pyplot as plt
+import numpy as np
 
 """
     More detail about the VGG architecture (if you want to understand magic/hardcoded numbers) can be found here:
@@ -50,49 +52,80 @@ class Vgg16(torch.nn.Module):
 
 class Vgg16Experimental(torch.nn.Module):
     """Everything exposed so you can play with different combinations for style and content representation"""
-    def __init__(self, requires_grad=False, show_progress=False):
+    def __init__(self, requires_grad=False, show_progress=False, pretrained=False, pooling_method="max"):
         super().__init__()
-        vgg_pretrained_features = models.vgg16(pretrained=True, progress=show_progress).features
+        vgg_pretrained_features = models.vgg16(pretrained=pretrained, progress=show_progress).features
+        if not pretrained:
+            print("vgg16 is randomly initialized")
         self.layer_names = ['relu1_1', 'relu2_1', 'relu2_2', 'relu3_1', 'relu3_2', 'relu4_1', 'relu4_3', 'relu5_1']
         self.content_feature_maps_index = 4
         self.style_feature_maps_indices = list(range(len(self.layer_names)))  # all layers used for style representation
+        print(f"using {pooling_method} pooling")
 
         self.conv1_1 = vgg_pretrained_features[0]
         self.relu1_1 = vgg_pretrained_features[1]
         self.conv1_2 = vgg_pretrained_features[2]
         self.relu1_2 = vgg_pretrained_features[3]
-        self.max_pooling1 = vgg_pretrained_features[4]
+        if pooling_method == "max":
+            self.pooling1 = vgg_pretrained_features[4]
+        elif pooling_method == "avg":
+            self.pooling1 = torch.nn.AvgPool2d((2,2),2)
+
         self.conv2_1 = vgg_pretrained_features[5]
         self.relu2_1 = vgg_pretrained_features[6]
         self.conv2_2 = vgg_pretrained_features[7]
         self.relu2_2 = vgg_pretrained_features[8]
-        self.max_pooling2 = vgg_pretrained_features[9]
+        if pooling_method == "max":
+            self.pooling2 = vgg_pretrained_features[9]
+        elif pooling_method == "avg":
+            self.pooling2 = torch.nn.AvgPool2d((2,2),2)
+        
         self.conv3_1 = vgg_pretrained_features[10]
         self.relu3_1 = vgg_pretrained_features[11]
         self.conv3_2 = vgg_pretrained_features[12]
         self.relu3_2 = vgg_pretrained_features[13]
         self.conv3_3 = vgg_pretrained_features[14]
         self.relu3_3 = vgg_pretrained_features[15]
-        self.max_pooling3 = vgg_pretrained_features[16]
+        if pooling_method == "max":
+            self.pooling3 = vgg_pretrained_features[16]
+        elif pooling_method == "avg":
+            self.pooling3 = torch.nn.AvgPool2d((2,2),2)
+
         self.conv4_1 = vgg_pretrained_features[17]
         self.relu4_1 = vgg_pretrained_features[18]
         self.conv4_2 = vgg_pretrained_features[19]
         self.relu4_2 = vgg_pretrained_features[20]
         self.conv4_3 = vgg_pretrained_features[21]
         self.relu4_3 = vgg_pretrained_features[22]
-        self.max_pooling4 = vgg_pretrained_features[23]
+        if pooling_method == "max":
+            self.pooling4 = vgg_pretrained_features[23]
+        elif pooling_method == "avg":
+            self.pooling4 = torch.nn.AvgPool2d((2,2),2)
+        
         self.conv5_1 = vgg_pretrained_features[24]
         self.relu5_1 = vgg_pretrained_features[25]
         self.conv5_2 = vgg_pretrained_features[26]
         self.relu5_2 = vgg_pretrained_features[27]
         self.conv5_3 = vgg_pretrained_features[28]
         self.relu5_3 = vgg_pretrained_features[29]
-        self.max_pooling5 = vgg_pretrained_features[30]
+        if pooling_method == "max":
+            self.pooling5 = vgg_pretrained_features[30]
+        elif pooling_method == "avg":
+            self.pooling5 = torch.nn.AvgPool2d((2,2),2)
+        
         if not requires_grad:
             for param in self.parameters():
                 param.requires_grad = False
 
     def forward(self, x):
+        # out_img = x.squeeze(0).to('cpu').detach().numpy()
+        # out_img = np.moveaxis(out_img, 0, 2)
+        # fig, axes = plt.subplots(1,2,figsize=(8,8))
+        # axes[0].imshow(out_img[:,:,::-1])
+        # axes[0].set_title(f"out_img")
+        # print(f"out_img : mean: {out_img.mean()}, var: {out_img.var()}, [{out_img.min()}, {out_img.max()}]")
+        # plt.show()
+        
         x = self.conv1_1(x)
         conv1_1 = x
         x = self.relu1_1(x)
@@ -101,7 +134,8 @@ class Vgg16Experimental(torch.nn.Module):
         conv1_2 = x
         x = self.relu1_2(x)
         relu1_2 = x
-        x = self.max_pooling1(x)
+        x = self.pooling1(x)
+
         x = self.conv2_1(x)
         conv2_1 = x
         x = self.relu2_1(x)
@@ -110,7 +144,8 @@ class Vgg16Experimental(torch.nn.Module):
         conv2_2 = x
         x = self.relu2_2(x)
         relu2_2 = x
-        x = self.max_pooling2(x)
+        x = self.pooling2(x)
+
         x = self.conv3_1(x)
         conv3_1 = x
         x = self.relu3_1(x)
@@ -123,7 +158,8 @@ class Vgg16Experimental(torch.nn.Module):
         conv3_3 = x
         x = self.relu3_3(x)
         relu3_3 = x
-        x = self.max_pooling3(x)
+        x = self.pooling3(x)
+
         x = self.conv4_1(x)
         conv4_1 = x
         x = self.relu4_1(x)
@@ -136,7 +172,8 @@ class Vgg16Experimental(torch.nn.Module):
         conv4_3 = x
         x = self.relu4_3(x)
         relu4_3 = x
-        x = self.max_pooling4(x)
+        x = self.pooling4(x)
+
         x = self.conv5_1(x)
         conv5_1 = x
         x = self.relu5_1(x)
@@ -149,7 +186,8 @@ class Vgg16Experimental(torch.nn.Module):
         conv5_3 = x
         x = self.relu5_3(x)
         relu5_3 = x
-        x = self.max_pooling5(x)
+        x = self.pooling5(x)
+
         # expose only the layers that you want to experiment with here
         vgg_outputs = namedtuple("VggOutputs", self.layer_names)
         out = vgg_outputs(relu1_1, relu2_1, relu2_2, relu3_1, relu3_2, relu4_1, relu4_3, relu5_1)
@@ -216,3 +254,14 @@ class Vgg19(torch.nn.Module):
         vgg_outputs = namedtuple("VggOutputs", self.layer_names)
         out = vgg_outputs(layer1_1, layer2_1, layer3_1, layer4_1, conv4_2, layer5_1)
         return out
+
+if __name__ == "__main__":
+    model = Vgg16Experimental(pretrained=False)
+    # print(next(model.conv1_1.parameters()))
+    img = torch.ones((1,3,10000,100))
+    output_img = model(img)._asdict()
+    print(f"input image: {img.shape}")
+    for layer_name in output_img:
+        print(f"{layer_name}: {output_img[layer_name].shape}")
+
+    

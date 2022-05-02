@@ -1,4 +1,6 @@
+from multiprocessing import pool
 import utils.utils as utils
+from utils.utils import num_of_iterations
 from utils.video_utils import create_video_from_intermediate_results
 
 import torch
@@ -47,6 +49,7 @@ def make_tuning_step(neural_net, optimizer, target_representations, content_feat
 
 
 def neural_style_transfer(config):
+    
     content_img_path = os.path.join(config['content_images_dir'], config['content_img_name'])
     style_img_path = os.path.join(config['style_images_dir'], config['style_img_name'])
 
@@ -56,8 +59,15 @@ def neural_style_transfer(config):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    content_img = utils.prepare_img(content_img_path, config['height'], device)
-    style_img = utils.prepare_img(style_img_path, config['height'], device)
+    if not config["preserve_color"]:
+        content_img = utils.prepare_img(content_img_path, config['height'], device)
+        style_img = utils.prepare_img(style_img_path, config['height'], device)
+    else:
+        content_img, content_color_img = utils.prepare_img(content_img_path, config['height'], device, type="yiq")
+        style_img, style_color_img = utils.prepare_img(style_img_path, config['height'], device, type="yiq")
+        config["content_color_img"] = content_color_img     # if preserve color, save color_img to config
+        config["style_color_img"] = style_color_img     
+
 
     if config['init_method'] == 'random':
         # white_noise_img = np.random.uniform(-90., 90., content_img.shape).astype(np.float32)
@@ -74,21 +84,28 @@ def neural_style_transfer(config):
     # we are tuning optimizing_img's pixels! (that's why requires_grad=True)
     optimizing_img = Variable(init_img, requires_grad=True)
 
-    neural_net, content_feature_maps_index_name, style_feature_maps_indices_names = utils.prepare_model(config['model'], device)
+
+    neural_net, content_feature_maps_index_name, style_feature_maps_indices_names = utils.prepare_model(config['model'], 
+                                                                                                        device, 
+                                                                                                        pretrained=config['pretrained'],
+                                                                                                        pooling_method=config['pooling_method'])
     print(f'Using {config["model"]} in the optimization procedure.')
 
     content_img_set_of_feature_maps = neural_net(content_img)
-    style_img_set_of_feature_maps = neural_net(style_img)
-
     target_content_representation = content_img_set_of_feature_maps[content_feature_maps_index_name[0]].squeeze(axis=0)
+    
+
+    style_img_set_of_feature_maps = neural_net(style_img)
+    target_style_representation = [utils.gram_matrix(x) for cnt, x in enumerate(style_img_set_of_feature_maps) if cnt in style_feature_maps_indices_names[0]]
+
+    # style_img_set_of_feature_maps = torch.tensor(neural_net(style_img))
+    # aug_style_images = utils.augment_image(style_img)       # a list of augmented style images
+    # for style_img in aug_style_images:
+    #     style_img_set_of_feature_maps += torch.tensor(neural_net(style_img))
+    # style_img_set_of_feature_maps /= len(aug_style_images)  # take average over style images
+        
     target_style_representation = [utils.gram_matrix(x) for cnt, x in enumerate(style_img_set_of_feature_maps) if cnt in style_feature_maps_indices_names[0]]
     target_representations = [target_content_representation, target_style_representation]
-
-    # magic numbers in general are a big no no - some things in this code are left like this by design to avoid clutter
-    num_of_iterations = {
-        "lbfgs": 1000,
-        "adam": 3000,
-    }
 
     #
     # Start of optimization procedure
@@ -133,25 +150,33 @@ if __name__ == "__main__":
     content_images_dir = os.path.join(default_resource_dir, 'content-images')
     style_images_dir = os.path.join(default_resource_dir, 'style-images')
     output_img_dir = os.path.join(default_resource_dir, 'output-images')
-    img_format = (4, '.jpg')  # saves images in the format: %04d.jpg
+    img_format = (4, '.png')  # saves images in the format: %04d.jpg
 
     #
     # modifiable args - feel free to play with these (only small subset is exposed by design to avoid cluttering)
     # sorted so that the ones on the top are more likely to be changed than the ones on the bottom
     #
     parser = argparse.ArgumentParser()
-    parser.add_argument("--content_img_name", type=str, help="content image name", default='figures.jpg')
-    parser.add_argument("--style_img_name", type=str, help="style image name", default='vg_starry_night.jpg')
-    parser.add_argument("--height", type=int, help="height of content and style images", default=400)
+    parser.add_argument("--content_img_name", type=str, help="content image name", default='shop.jpg')
+    parser.add_argument("--style_img_name", type=str, help="style image name", default='candy.jpg')
+    parser.add_argument("--height", type=int, help="height of content and style images", default=utils.DEFAULT_HEIGHT)
 
     parser.add_argument("--content_weight", type=float, help="weight factor for content loss", default=1e5)
     parser.add_argument("--style_weight", type=float, help="weight factor for style loss", default=3e4)
-    parser.add_argument("--tv_weight", type=float, help="weight factor for total variation loss", default=1e0)
+    parser.add_argument("--tv_weight", type=float, help="weight factor for total variation loss", default=1e1)
 
     parser.add_argument("--optimizer", type=str, choices=['lbfgs', 'adam'], default='lbfgs')
-    parser.add_argument("--model", type=str, choices=['vgg16', 'vgg19'], default='vgg19')
+    parser.add_argument("--model", type=str, choices=['vgg16', 'vgg19'], default='vgg16')
     parser.add_argument("--init_method", type=str, choices=['random', 'content', 'style'], default='content')
-    parser.add_argument("--saving_freq", type=int, help="saving frequency for intermediate images (-1 means only final)", default=-1)
+    parser.add_argument("--pooling_method", type=str, choices=['max', 'avg'], help="pooling method, max pooling or average pooling", default='max')
+    parser.add_argument("--saving_freq", type=int, help="saving frequency for intermediate images (-1 means only final)", default=2)
+    parser.add_argument("--max_iter", type=int, help="maximal number of iterations", default=300)
+    parser.add_argument("--preserve_color", type=int, help="whether or not to preserve the color of the content image", default=0)
+    parser.add_argument("--pretrained", type=int, help="whether or not to use a pretrained model", default=1)
+    parser.add_argument("--augmented", type=int, help="whether or not to augment the dataset", default=0)
+    
+
+
     args = parser.parse_args()
 
     # some values of weights that worked for figures.jpg, vg_starry_night.jpg (starting point for finding good images)
@@ -173,9 +198,29 @@ if __name__ == "__main__":
     optimization_config['style_images_dir'] = style_images_dir
     optimization_config['output_img_dir'] = output_img_dir
     optimization_config['img_format'] = img_format
+    optimization_config['preserve_color'] = bool(optimization_config['preserve_color'])
+    optimization_config['pretrained'] = bool(optimization_config['pretrained'])
+    num_of_iterations[optimization_config['optimizer']] = optimization_config['max_iter']
 
+    print(f"images:\n"
+          f"    content image: {optimization_config['content_img_name']}\n"
+          f"    style image  : {optimization_config['style_img_name']}\n")
+    print(f"weights:\n"
+          f"    style_weight  : {optimization_config['style_weight']:.1}\n"
+          f"    content_weight: {optimization_config['content_weight']:.1}\n"
+          f"    tv_weight     : {optimization_config['tv_weight']:.1}")
     # original NST (Neural Style Transfer) algorithm (Gatys et al.)
+    print(f"init method: {optimization_config['init_method']}\n"
+          f"preserve_color: {optimization_config['preserve_color']}\n"
+          f"optimizer: {optimization_config['optimizer']}\n"
+          f"num of iterations: {num_of_iterations[optimization_config['optimizer']]}")
+    # print(f"pretrained    : {optimization_config['pretrained']} ")
+
+
+
     results_path = neural_style_transfer(optimization_config)
 
     # uncomment this if you want to create a video from images dumped during the optimization procedure
     # create_video_from_intermediate_results(results_path, img_format)
+
+    
