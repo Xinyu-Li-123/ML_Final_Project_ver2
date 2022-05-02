@@ -1,5 +1,6 @@
 import os
 
+print("Hello world form Python :)")
 for filename in os.listdir("./"):
     # checking if it is a file
     f = filename
