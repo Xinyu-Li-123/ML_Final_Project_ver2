@@ -257,8 +257,8 @@ class Vgg19(torch.nn.Module):
 
 if __name__ == "__main__":
     model = Vgg16Experimental(pretrained=False)
-    # print(next(model.conv1_1.parameters()))
-    img = torch.ones((1,3,10000,100))
+    # print(model)
+    img = torch.ones((1,3,400,500))
     output_img = model(img)._asdict()
     print(f"input image: {img.shape}")
     for layer_name in output_img:

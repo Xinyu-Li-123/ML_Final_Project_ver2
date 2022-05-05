@@ -9,7 +9,11 @@ from torch.autograd import Variable
 import numpy as np
 import os
 import argparse
+from models.definitions.vgg_nets import Vgg16Experimental
 
+# print("Randomly Initializing Content VGG...")
+# content_vgg = Vgg16Experimental(pretrained=False)
+# print("Content vgg initialized successfully")
 
 def build_loss(neural_net, optimizing_img, target_representations, content_feature_maps_index, style_feature_maps_indices, config):
     target_content_representation = target_representations[0]
@@ -17,14 +21,17 @@ def build_loss(neural_net, optimizing_img, target_representations, content_featu
 
     current_set_of_feature_maps = neural_net(optimizing_img)
 
+    # current_content_representation = content_vgg(optimizing_img)[content_feature_maps_index].squeeze(axis=0)
     current_content_representation = current_set_of_feature_maps[content_feature_maps_index].squeeze(axis=0)
-    content_loss = torch.nn.MSELoss(reduction='mean')(target_content_representation, current_content_representation)
+    content_loss = torch.nn.MSELoss(reduction='mean')(target_content_representation, current_content_representation)    
 
     style_loss = 0.0
     current_style_representation = [utils.gram_matrix(x) for cnt, x in enumerate(current_set_of_feature_maps) if cnt in style_feature_maps_indices]
     for gram_gt, gram_hat in zip(target_style_representation, current_style_representation):
         style_loss += torch.nn.MSELoss(reduction='sum')(gram_gt[0], gram_hat[0])
     style_loss /= len(target_style_representation)
+
+    # content_loss = style_loss - style_loss
 
     tv_loss = utils.total_variation(optimizing_img)
 
@@ -48,16 +55,18 @@ def make_tuning_step(neural_net, optimizer, target_representations, content_feat
     return tuning_step
 
 
-def neural_style_transfer(config):
+def neural_style_transfer(config, content_img_name: str, style_img_name: str):
     
-    content_img_path = os.path.join(config['content_images_dir'], config['content_img_name'])
-    style_img_path = os.path.join(config['style_images_dir'], config['style_img_name'])
+    content_img_path = os.path.join(config['content_images_dir'], content_img_name)
+    style_img_path = os.path.join(config['style_images_dir'], style_img_name)
 
     out_dir_name = 'combined_' + os.path.split(content_img_path)[1].split('.')[0] + '_' + os.path.split(style_img_path)[1].split('.')[0]
     dump_path = os.path.join(config['output_img_dir'], out_dir_name)
     os.makedirs(dump_path, exist_ok=True)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # content_vgg.to(device)
+    # print(f"content vgg is using device: {device}")
 
     if not config["preserve_color"]:
         content_img = utils.prepare_img(content_img_path, config['height'], device)
@@ -131,7 +140,8 @@ def neural_style_transfer(config):
             if total_loss.requires_grad:
                 total_loss.backward()
             with torch.no_grad():
-                print(f'L-BFGS | iteration: {cnt:03}, total loss={total_loss.item():12.4f}, content_loss={config["content_weight"] * content_loss.item():12.4f}, style loss={config["style_weight"] * style_loss.item():12.4f}, tv loss={config["tv_weight"] * tv_loss.item():12.4f}')
+                if cnt % 50 == 0:
+                    print(f'L-BFGS | iteration: {cnt:03}, total loss={total_loss.item():12.4f}, content_loss={config["content_weight"] * content_loss.item():12.4f}, style loss={config["style_weight"] * style_loss.item():12.4f}, tv loss={config["tv_weight"] * tv_loss.item():12.4f}')
                 utils.save_and_maybe_display(optimizing_img, dump_path, config, cnt, num_of_iterations[config['optimizer']], should_display=False)
 
             cnt += 1
@@ -173,8 +183,9 @@ if __name__ == "__main__":
     parser.add_argument("--max_iter", type=int, help="maximal number of iterations", default=300)
     parser.add_argument("--preserve_color", type=int, help="whether or not to preserve the color of the content image", default=0)
     parser.add_argument("--pretrained", type=int, help="whether or not to use a pretrained model", default=1)
-    parser.add_argument("--augmented", type=int, help="whether or not to augment the dataset", default=0)
-    
+    parser.add_argument("--content_augmented", type=int, help="whether or not to augment the dataset", default=0)
+    parser.add_argument("--style_augmented", type=int, help="whether or not to augment the dataset", default=0)
+        
 
 
     args = parser.parse_args()
@@ -202,6 +213,7 @@ if __name__ == "__main__":
     optimization_config['pretrained'] = bool(optimization_config['pretrained'])
     num_of_iterations[optimization_config['optimizer']] = optimization_config['max_iter']
 
+
     print(f"images:\n"
           f"    content image: {optimization_config['content_img_name']}\n"
           f"    style image  : {optimization_config['style_img_name']}\n")
@@ -217,8 +229,32 @@ if __name__ == "__main__":
     # print(f"pretrained    : {optimization_config['pretrained']} ")
 
 
+    # expose img_name to iterate through augmented images
 
-    results_path = neural_style_transfer(optimization_config)
+    content_img_name = optimization_config["content_img_name"]
+    style_img_name = optimization_config["style_img_name"]
+
+    if optimization_config["content_augmented"] + optimization_config["style_augmented"] == 2:
+        raise ValueError("You can only augment either content or style")
+    
+    print(optimization_config["content_augmented"], optimization_config["style_augmented"])
+    if optimization_config["content_augmented"]:
+        # iterate over augmented content images
+        print("augmented type: content")
+        aug_content_img_names = utils.augment_img(optimization_config, aug_type="content")
+        for aug_content_img_name in aug_content_img_names:
+            neural_style_transfer(optimization_config, aug_content_img_name, style_img_name)
+            print(f"{aug_content_img_name} completed")
+
+    elif optimization_config["style_augmented"]:
+        print("augmented type: content")
+        pass
+    else:
+        print("augmented type: None")
+        neural_style_transfer(optimization_config, content_img_name, style_img_name)
+        pass
+    
+
 
     # uncomment this if you want to create a video from images dumped during the optimization procedure
     # create_video_from_intermediate_results(results_path, img_format)

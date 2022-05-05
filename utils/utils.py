@@ -166,24 +166,44 @@ def y2rgb(img: np.ndarray):
     return np.rollaxis(new_img, 0, 3)
 
 
-def augment_image(img, opcodes=("flip-vertical", 
-                                "flip-horizontal", 
-                                # "resize-0.4",
-                                # "resize-0.2"
-                                )):
-    ops = {
-        "flip": lambda img, direction: cv.flip(img, {"horizontal": 0, 
-                                                     "vertical"  : 1}[direction]),  # flip
-        "resize": lambda img, scale: cv.resize(img, (int(img.shape[1]*float(scale)), 
-                                                     int(img.shape[0]*float(scale)))),
-    }
-    new_imgs = []
-    for opcode in opcodes:
-        op, code = opcode.split("-")
-        print(op, code)
-        new_imgs.append(ops[op](img, code))
-    return new_imgs
+def augment_img(config, aug_type="content"):
+    def flip(img: np.ndarray, code: int):
+        if code in (0,1):
+            return cv.flip(img, code)
+        else:
+            raise ValueError(f"code must be 0, 1, or 2, instead of {code}")
 
+    def rotate(img: np.ndarray, code: int):
+        if code in (0,1,2):
+            return cv.rotate(img, code)
+        else:
+            raise ValueError(f"code must be 0, 1, or 2, instead of {code}")
+
+    img = cv.imread(os.path.join(
+        config[aug_type+"_images_dir"], config[aug_type+"_img_name"]
+    ))
+
+    imgs = {
+        "original": img, 
+        # "r0": rotate(img, 0),
+        # "r1": rotate(img, 1),
+        # "r2": rotate(img, 2),
+        # "f0": flip(img, 0),
+        # "f1": flip(img, 1),
+        # "r0f0": rotate(flip(img, 0), 0),
+        # "r0f1": rotate(flip(img, 1), 0),
+    }
+
+    aug_img_names = []
+
+    for op_name in imgs:
+        print(op_name)
+        format = config[aug_type+"_img_name"].split(".")[-1]
+        aug_img_name = ".".join(config[aug_type+"_img_name"].split(".")[0:-1]) + "_" + op_name + "." + format
+        aug_img_names.append(aug_img_name)
+        cv.imwrite(os.path.join(config[aug_type+"_images_dir"], aug_img_name), imgs[op_name])
+    
+    return aug_img_names
 
 def save_image(img, img_path):
     if len(img.shape) == 2:
@@ -225,15 +245,6 @@ def save_and_maybe_display(optimizing_img, dump_path, config, img_id, num_of_ite
         else:
             dump_img += np.array(IMAGENET_MEAN_255).reshape((1, 1, 3))
         dump_img = np.clip(dump_img, 0, 255).astype('uint8')
-
-        # fig, axes = plt.subplots(1,2,figsize=(8,8))
-        # axes[0].imshow(out_img)
-        # axes[0].set_title(f"out_img")
-        # print(f"out_img : mean: {out_img.mean()}, var: {out_img.var()}, [{out_img.min()}, {out_img.max()}]")
-        # axes[1].imshow(dump_img)
-        # axes[0].set_title(f"dump_img")
-        # print(f"dump_img: mean: {dump_img.mean()}, var: {dump_img.var()}, [{dump_img.min()}, {dump_img.max()}]")
-        # plt.show()
 
         cv.imwrite(os.path.join(dump_path, out_img_name), dump_img[:, :, ::-1])
 
