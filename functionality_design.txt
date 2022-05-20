@@ -1,5 +1,0 @@
-image preprocessing
-
-img_path => rgb image => yiq image => iq image  =======================================================================|==>  output_image 
-																													   |
-									  y image 	=>	input_grey_image == model ==> output_grey_image => output_y_image==|

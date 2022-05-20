@@ -1,3 +1,5 @@
+#coding:utf-8
+
 from collections import namedtuple
 import torch
 from torchvision import models
@@ -19,7 +21,7 @@ class Vgg16(torch.nn.Module):
         self.layer_names = ['relu1_2', 'relu2_2', 'relu3_3', 'relu4_3']
         self.content_feature_maps_index = 1  # relu2_2
         self.style_feature_maps_indices = list(range(len(self.layer_names)))  # all layers used for style representation
-
+        
         self.slice1 = torch.nn.Sequential()
         self.slice2 = torch.nn.Sequential()
         self.slice3 = torch.nn.Sequential()
@@ -52,15 +54,31 @@ class Vgg16(torch.nn.Module):
 
 class Vgg16Experimental(torch.nn.Module):
     """Everything exposed so you can play with different combinations for style and content representation"""
-    def __init__(self, requires_grad=False, show_progress=False, pretrained=False, pooling_method="max"):
+    def __init__(self, requires_grad=False, show_progress=False, pretrained=False, pooling_method="max", content_feature_maps_indices=None, style_feature_maps_indices=None):
         super().__init__()
         vgg_pretrained_features = models.vgg16(pretrained=pretrained, progress=show_progress).features
         if not pretrained:
             print("vgg16 is randomly initialized")
         self.layer_names = ['relu1_1', 'relu2_1', 'relu2_2', 'relu3_1', 'relu3_2', 'relu4_1', 'relu4_3', 'relu5_1']
-        self.content_feature_maps_index = 4
-        self.style_feature_maps_indices = list(range(len(self.layer_names)))  # all layers used for style representation
+        
+        if content_feature_maps_indices is None:
+            self.content_feature_maps_indices = [6]
+        else:
+            self.content_feature_maps_indices = content_feature_maps_indices
+
+        if style_feature_maps_indices is None:
+            self.style_feature_maps_indices = list(range(len(self.layer_names)))  # all layers used for style representation
+        else:
+            for index in style_feature_maps_indices:
+                if index not in range(len(self.layer_names)):
+                    raise IndexError(f"style features maps indices should be in range({len(self.layer_names)}), but your input is {style_feature_maps_indices}")
+            self.style_feature_maps_indices = style_feature_maps_indices
+
+        
         print(f"using {pooling_method} pooling")
+        # print(f"\tcontent layers: {self.layer_names[self.content_feature_maps_index]}")
+        print(f"\tcontent layers: {[self.layer_names[i] for i in self.content_feature_maps_indices]}")
+        print(f"\tstyle   layers: {[self.layer_names[i] for i in self.style_feature_maps_indices]}")
 
         self.conv1_1 = vgg_pretrained_features[0]
         self.relu1_1 = vgg_pretrained_features[1]
@@ -258,10 +276,13 @@ class Vgg19(torch.nn.Module):
 if __name__ == "__main__":
     model = Vgg16Experimental(pretrained=False)
     # print(model)
-    img = torch.ones((1,3,400,500))
+    img = torch.ones((5,3,400,500))
     output_img = model(img)._asdict()
     print(f"input image: {img.shape}")
+    print(model.content_feature_maps_indices, model.style_feature_maps_indices)
     for layer_name in output_img:
         print(f"{layer_name}: {output_img[layer_name].shape}")
+
+    
 
     

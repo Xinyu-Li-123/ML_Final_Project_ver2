@@ -38,7 +38,7 @@ YIQ2RGB = np.array(
      [1, -0.2748, -0.6357],
      [1, -1.1   ,  1.7   ]])
 
-def load_image(img_path, target_shape=None, reshape_method="resize"):
+def load_image(img_path, target_shape=None):
     """
     Load image from img_path, reshape to target_shape
     img.shape = (H, W, C)
@@ -57,50 +57,17 @@ def load_image(img_path, target_shape=None, reshape_method="resize"):
             current_height, current_width = img.shape[:2]
             new_height = target_shape
             new_width = int(current_width * (new_height / current_height))
-            if reshape_method == "resize":
-                img = cv.resize(img, (new_width, new_height), interpolation=cv.INTER_CUBIC)
-            elif reshape_method == "crop":
-                img = img[0: new_width, 0: new_height, : ]
-            else:
-                raise ValueError(f"Unrecognized value of reshape_method: {reshape_method}")    
+            img = cv.resize(img, (new_width, new_height), interpolation=cv.INTER_CUBIC)
         else:  # set both dimensions to target shape
-            if reshape_method == "resize":
-                img = cv.resize(img, (target_shape[1], target_shape[0]), interpolation=cv.INTER_CUBIC)
-            elif reshape_method == "crop":
-                img = img[0: target_shape[1], 0: target_shape[0] , : ]
-            else:
-                raise ValueError(f"Unrecognized value of reshape_method: {reshape_method}")  
-
+            img = cv.resize(img, (target_shape[1], target_shape[0]), interpolation=cv.INTER_CUBIC)
 
     # this need to go after resizing - otherwise cv.resize will push values outside of [0,1] range
     img = img.astype(np.float32)  # convert from uint8 to float32
     img /= 255.0  # get to [0, 1] range
     return img
 
-# aug_method = [               # augment image
-#     lambda x: x,
-#     lambda x: TF.hflip(x),
-#     lambda x: TF.vflip(x),
-#     lambda x: TF.rotate(x, 90.0),     # automatically resized to original shape
-#     lambda x: TF.rotate(x, 180.0),  
-#     lambda x: TF.rotate(x, 270.0),
-#     lambda x: TF.rotate(TF.hflip(x), 90.0),
-#     lambda x: TF.rotate(TF.vflip(x), 90.0),
-# ]
 
-reverse_method = [
-    lambda x: x,
-    lambda x: TF.hflip(x),
-    lambda x: TF.vflip(x),
-    lambda x: TF.rotate(x, 270.0),     # automatically resized to original shape
-    lambda x: TF.rotate(x, 180.0),  
-    lambda x: TF.rotate(x, 90.0),
-    lambda x: TF.hflip(TF.rotate(x, 270.0)),
-    lambda x: TF.vflip(TF.rotate(x, 270.0)),
-]
-
-
-def prepare_img(img: np.ndarray, target_shape, device, type="rgb", should_aug=False, img_num=None):
+def prepare_img(img: np.ndarray, target_shape, device, type="rgb", should_aug=False):
     """
     img: img.shape = (H, W, C)
     
@@ -117,21 +84,21 @@ def prepare_img(img: np.ndarray, target_shape, device, type="rgb", should_aug=Fa
         
     # normalize using ImageNet's mean
     # [0, 255] range worked much better for me than [0, 1] range (even though PyTorch models were trained on latter)    
+    # Note that, should aug or not, we will always unsqueeze a dimension at axis=0 by calling torch.stack
     if should_aug:
         transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Lambda(lambda x: x.mul(255)),
             transforms.Normalize(mean=IMAGENET_MEAN_255, std=IMAGENET_STD_NEUTRAL),     # normalize and move axis
-            # aug_method,
             transforms.Lambda(lambda x: torch.stack([               # augment image
                 x,
                 TF.hflip(x),
                 TF.vflip(x),
-                TF.rotate(x, 90.0),     # automatically resized to original shape
+                TF.rotate(x, 90.0),
                 TF.rotate(x, 180.0),  
                 TF.rotate(x, 270.0),
-                TF.rotate(TF.hflip(x), 90.0),
-                TF.rotate(TF.vflip(x), 90.0),
+                # TF.rotate(TF.hflip(x), 90.0),
+                # TF.rotate(TF.vflip(x), 90.0),
             ]))
         ])
     else: 
@@ -140,13 +107,13 @@ def prepare_img(img: np.ndarray, target_shape, device, type="rgb", should_aug=Fa
             transforms.Lambda(lambda x: x.mul(255)),
             transforms.Normalize(mean=IMAGENET_MEAN_255, std=IMAGENET_STD_NEUTRAL),     # normalize and move axis
             transforms.Lambda(lambda x: torch.stack([
-                    x,
+                x,
             ]))   
         ])
 
     if type == "rgb":
         img = transform(img).to(device)    # ndarray -> tensor
-        return img, None
+        return img
     elif type == "yiq":
         luminance_img = transform(luminance_img).to(device)    # ndarray -> tensor
         # in this case, the return type are as follow
@@ -235,67 +202,52 @@ def y2rgb(img: np.ndarray):
 
     return np.rollaxis(new_img, 0, 3)
 
-# def flip(img: np.ndarray, code: int):
-#     if code in (0,1):
-#         return cv.flip(img, code)
-#     else:
-#         raise ValueError(f"code must be 0, 1, or 2, instead of {code}")
 
-# def rotate(img: np.ndarray, code: int):
-#     if code in (0,1,2):
-#         return cv.rotate(img, code)
-#     else:
-#         raise ValueError(f"code must be 0, 1, or 2, instead of {code}")
+def augment_img(img: np.ndarray):
+    def flip(img: np.ndarray, code: int):
+        if code in (0,1):
+            return cv.flip(img, code)
+        else:
+            raise ValueError(f"code must be 0, 1, or 2, instead of {code}")
 
-# def resize(img: np.ndarray, target_shape):
-#     return cv.resize(img, target_shape)
+    def rotate(img: np.ndarray, code: int):
+        if code in (0,1,2):
+            return cv.rotate(img, code)
+        else:
+            raise ValueError(f"code must be 0, 1, or 2, instead of {code}")
 
-# # methods to augment the image
-# aug_methods = [
-#     lambda img: img,
-#     lambda img: rotate(img, 0),   # r0: clockwise, 90 degree
-#     lambda img: rotate(img, 1),   # r1: clockwise, 180 degree
-#     lambda img: rotate(img, 2),   # r2: clockwise, 270 degree
-#     lambda img: flip(img, 0),     # f0: horizontal flip
-#     lambda img: flip(img, 1),     # f1: vertical   flip
-#     lambda img: rotate(flip(img, 0), 0),    # r0f0
-#     lambda img: rotate(flip(img, 1), 0),    # r1f1
-# ]
+    def resize(img: np.ndarray, target_shape):
+        return cv.resize(img, target_shape)
 
-# # methods to change the augmented image back to the original image 
-# #   (e.g. aug by rotate 90 degree clockwise, then reverse by rotate 270 degree clockwise)
-# reverse_methods = [
-#     lambda img: img,
-#     lambda img: rotate(img, 2),   # r0: clockwise, 90 degree
-#     lambda img: rotate(img, 1),   # r1: clockwise, 180 degree
-#     lambda img: rotate(img, 0),   # r2: clockwise, 270 degree
-#     lambda img: flip(img, 0),     # f0: horizontal flip
-#     lambda img: flip(img, 1),     # f1: vertical   flip
-#     lambda img: flip(rotate(img, 2), 0),    # r0f0
-#     lambda img: flip(rotate(img, 2), 1),    # r1f1
-# ]
+    # aug_imgs = {
+    #     "original": img, 
+    #     "r0": rotate(img, 0),
+    #     "r1": rotate(img, 1),
+    #     "r2": rotate(img, 2),
+    #     "f0": flip(img, 0),
+    #     "f1": flip(img, 1),
+    #     "r0f0": rotate(flip(img, 0), 0),
+    #     "r0f1": rotate(flip(img, 1), 0),
+    # }
+    aug_imgs = [
+        img,    # original 
+        rotate(img, 0),   # r0
+        rotate(img, 1),   # r1
+        rotate(img, 2),   # r2
+        flip(img, 0),     # f0
+        flip(img, 1),     # f1
+        # rotate(flip(img, 0), 0),    # r0f0
+        # rotate(flip(img, 1), 0),    # r1f1
+    ]
+    # resize to the same shape as the original image
+    for i in range(len(aug_imgs)):
+        aug_imgs[i] = resize(aug_imgs[i], target_shape=(img.shape[1], img.shape[0]))
+    for img in aug_imgs:
+        print(img.shape, img.dtype)
 
-# def augment_img(img: np.ndarray):
-#     # aug_imgs = [
-#     #     img,    # original 
-#     #     rotate(img, 0),   # r0: clockwise, 90 degree
-#     #     rotate(img, 1),   # r1: clockwise, 180 degree
-#     #     rotate(img, 2),   # r2: clockwise, 270 degree
-#     #     flip(img, 0),     # f0: horizontal flip
-#     #     flip(img, 1),     # f1: vertical   flip
-#     #     rotate(flip(img, 0), 0),    # r0f0
-#     #     rotate(flip(img, 1), 0),    # r1f1
-#     # ]
-#     aug_imgs = [aug_method(img) for aug_method in aug_methods]
-#     # resize to the same shape as the original image
-#     for i in range(len(aug_imgs)):
-#         aug_imgs[i] = resize(aug_imgs[i], target_shape=(img.shape[1], img.shape[0]))
-#     for img in aug_imgs:
-#         print(img.shape, img.dtype)
-
-#     aug_imgs = np.asarray(aug_imgs)
+    aug_imgs = np.asarray(aug_imgs)
     
-#     return aug_imgs
+    return aug_imgs
 
 def save_image(img, img_path):
     if len(img.shape) == 2:
@@ -313,64 +265,12 @@ def generate_out_img_name(config):
     return prefix + suffix
 
 
-def save_and_maybe_display(optimizing_img, dump_path, config, img_id, num_of_iterations, should_display=False, img_num=None):
+def save_and_maybe_display(optimizing_img, dump_path, config, img_id, num_of_iterations, should_display=False):
     saving_freq = config['saving_freq']
-    
-    # out_img = optimizing_img.squeeze(axis=0).to('cpu').detach().numpy()
-    
-    # out_img = np.zeros(optimizing_img.shape[1:])
-    # for n in range(optimizing_img.shape[0]):
-    #     current_img = optimizing_img[n,:,:,:].to('cpu').detach().numpy()
-    #     current_img = np.moveaxis(current_img, 0, 2)    # swap channel from 1st to 3rd position: ch, _, _ -> _, _, ch
-    #     out_img += reverse_methods[n](current_img)
-    # out_img /= optimizing_img.shape[0]
-
-    if config["aug_type"] in (1, 3):
-        # for n, f in enumerate(reverse_method):
-        optimizing_img = reverse_method[img_num](optimizing_img)
-    out_img = optimizing_img.mean(axis=0)    
-    out_img = out_img.to('cpu').detach().numpy()
-    out_img = np.moveaxis(out_img, 0, 2)  # swap channel from 1st to 3rd position: ch, _, _ -> _, _, ch
+    out_img = optimizing_img.squeeze(axis=0).to('cpu').detach().numpy()
+    out_img = np.moveaxis(out_img, 0, 2)  # swap channel from 1st to 3rd position: ch, _, _ -> _, _, chr
 
 
-    # for saving_freq == -1 save only the final result (otherwise save with frequency saving_freq and save the last pic)
-    # if img_id == num_of_iterations-1 or (saving_freq > 0 and img_id % saving_freq == 0):
-    img_format = config['img_format']
-    out_img_name = f"{str(img_num).zfill(2)}_" + str(img_id).zfill(img_format[0]) + img_format[1] if saving_freq != -1 else generate_out_img_name(config)
-    
-    dump_img = np.copy(out_img)
-    if config["preserve_color"]:
-        # print(f"line 190: out_img : mean: {out_img.mean()}, var: {out_img.var()}, [{out_img.min()}, {out_img.max()}]")
-        dump_img += np.array(IMAGENET_MEAN_255).reshape((1, 1, 3)) 
-        dump_img /= 255        # scale to [0, 1] to combine luminance and color
-        dump_luminance_img = dump_img[:,:,:].mean(axis=2)
-        dump_color_img = config['content_color_img']
-        # print(f"luminance: shape={dump_luminance_img.shape}, min={dump_luminance_img.min() :.2f}, max={dump_luminance_img.max() :.2f}")
-        # print(f"color: shape={dump_color_img.shape}, min={dump_color_img.min() :.2f}, max={dump_color_img.max() :.2f}")
-        dump_img = y_iq_2rgb(dump_luminance_img, dump_color_img) * 255
-    else:
-        dump_img += np.array(IMAGENET_MEAN_255).reshape((1, 1, 3))
-    dump_img = np.clip(dump_img, 0, 255).astype('uint8')
-
-    cv.imwrite(os.path.join(dump_path, out_img_name), dump_img[:, :, ::-1])
-    print(f"{os.path.join(dump_path, out_img_name)} is saved")
-
-    if should_display:
-        plt.imshow(np.uint8(get_uint8_range(out_img)))
-        plt.show()
-
-
-def produce_out_img(optimizing_img, config, img_num=None):
-    if config["aug_type"] in (1, 3):
-        # for n, f in enumerate(reverse_method):
-        optimizing_img = reverse_method[img_num](optimizing_img)
-    out_img = optimizing_img.mean(axis=0)    
-    out_img = out_img.to('cpu').detach().numpy()
-    out_img = np.moveaxis(out_img, 0, 2)  # swap channel from 1st to 3rd position: ch, _, _ -> _, _, ch
-    return out_img
-
-def save_out_img(out_img, dump_path, config, img_id):
-    saving_freq = config['saving_freq']
     # for saving_freq == -1 save only the final result (otherwise save with frequency saving_freq and save the last pic)
     # if img_id == num_of_iterations-1 or (saving_freq > 0 and img_id % saving_freq == 0):
     img_format = config['img_format']
@@ -393,7 +293,9 @@ def save_out_img(out_img, dump_path, config, img_id):
     cv.imwrite(os.path.join(dump_path, out_img_name), dump_img[:, :, ::-1])
     print(f"{os.path.join(dump_path, out_img_name)} is saved")
 
-
+    if should_display:
+        plt.imshow(np.uint8(get_uint8_range(out_img)))
+        plt.show()
 
 
 def get_uint8_range(x):
@@ -465,12 +367,10 @@ if __name__ == "__main__":
     img_name = "shop.jpg"
     img_path = os.path.join(img_dir, img_name)
     # img = prepare_img(img_path, "400", device="cpu")
-    TARGET_SHAPE = 500
-    img = load_image(img_path, target_shape=TARGET_SHAPE)
+    img = load_image(img_path, target_shape=(400, 500))
     print(type(img), img.shape, img.dtype)
     should_aug_content = True
     
-    luminance_img, color_img = prepare_img(img, TARGET_SHAPE, "cpu", type="yiq", should_aug=should_aug_content)
+    luminance_img, color_img = prepare_img(img, (400, 500), "cpu", type="yiq", should_aug=should_aug_content)
     print(luminance_img.shape, type(luminance_img))
     print(color_img.shape, type(color_img))
-
