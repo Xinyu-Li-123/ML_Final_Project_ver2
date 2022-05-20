@@ -2,7 +2,7 @@
 
 ### About
 
-This is a fork of [gordicaleksa's implementation of Neural Style Transfer](https://github.com/gordicaleksa/pytorch-neural-style-transfer). I added two features to gordicaleksa's original code: colorspace conversion and content augmentation.
+This is a fork of [gordicaleksa's implementation of Neural Style Transfer](https://github.com/gordicaleksa/pytorch-neural-style-transfer). I added two features to gordicaleksa's original code: **colorspace conversion** and **content augmentation**.
 
 To test out the model, you can use the following command in the powershell
 ```cmd
